@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Code2, Coffee, ChevronRight, ChevronLeft, PlayCircle, BookOpen, CheckCircle2, FileJson, Cpu, Monitor, Smartphone } from 'lucide-react';
+import { Code2, Coffee, ChevronRight, ChevronLeft, PlayCircle, BookOpen, CheckCircle2, FileJson, Cpu, Monitor, Smartphone, Search, X, AlertCircle, Check } from 'lucide-react';
 import { courseData, ColorTheme } from './data/lessons';
 
 const iconMap: Record<string, React.ElementType> = {
@@ -23,9 +23,84 @@ const colorStyles: Record<ColorTheme, any> = {
   cyan: { bg: 'bg-cyan-500', text: 'text-cyan-600', lightBg: 'bg-cyan-100', border: 'hover:border-cyan-500', shadow: 'hover:shadow-cyan-500/10', cardBg: 'bg-cyan-50', progress: 'bg-cyan-500', hoverBg: 'hover:bg-cyan-600' },
 };
 
+interface SearchResult {
+  langKey: string;
+  langName: string;
+  lessonIndex: number;
+  title: string;
+  snippet: string;
+}
+
 export default function App() {
   const [selectedLang, setSelectedLang] = useState<string | null>(null);
   const [currentLessonIndex, setCurrentLessonIndex] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [userAnswer, setUserAnswer] = useState('');
+  const [feedback, setFeedback] = useState<'correct' | 'incorrect' | null>(null);
+  const searchRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setUserAnswer('');
+    setFeedback(null);
+  }, [selectedLang, currentLessonIndex]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
+        setIsSearchFocused(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    if (query.trim().length < 2) {
+      setSearchResults([]);
+      return;
+    }
+
+    const results: SearchResult[] = [];
+    const lowerQuery = query.toLowerCase();
+
+    Object.entries(courseData).forEach(([langKey, langData]) => {
+      langData.lessons.forEach((lesson, index) => {
+        const inTitle = lesson.title.toLowerCase().includes(lowerQuery);
+        const inContent = lesson.content.toLowerCase().includes(lowerQuery);
+        const inCode = lesson.codeExample.toLowerCase().includes(lowerQuery);
+        const inExplanation = lesson.explanation.toLowerCase().includes(lowerQuery);
+
+        if (inTitle || inContent || inCode || inExplanation) {
+          let snippet = '';
+          if (inTitle) snippet = lesson.title;
+          else if (inContent) snippet = lesson.content.substring(0, 60) + '...';
+          else if (inCode) snippet = lesson.codeExample.substring(0, 60) + '...';
+          else snippet = lesson.explanation.substring(0, 60) + '...';
+
+          results.push({
+            langKey,
+            langName: langData.name,
+            lessonIndex: index,
+            title: lesson.title,
+            snippet
+          });
+        }
+      });
+    });
+
+    setSearchResults(results.slice(0, 8));
+  };
+
+  const handleSelectResult = (result: SearchResult) => {
+    setSelectedLang(result.langKey);
+    setCurrentLessonIndex(result.lessonIndex);
+    setSearchQuery('');
+    setSearchResults([]);
+    setIsSearchFocused(false);
+  };
 
   const handleSelectLang = (lang: string) => {
     setSelectedLang(lang);
@@ -49,26 +124,90 @@ export default function App() {
     setCurrentLessonIndex(0);
   };
 
+  const checkAnswer = () => {
+    const solution = activeLangData?.lessons[currentLessonIndex].practiceSolution || '';
+    const normalize = (str: string) => str.replace(/\s+/g, '').trim();
+    
+    if (normalize(userAnswer) === normalize(solution)) {
+      setFeedback('correct');
+    } else {
+      setFeedback('incorrect');
+    }
+  };
+
   const activeLangData = selectedLang ? courseData[selectedLang] : null;
   const activeColors = activeLangData ? colorStyles[activeLangData.colorTheme] : null;
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900 font-sans selection:bg-stone-200">
-      <header className="bg-white border-b border-stone-200 sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
+      <header className="bg-white border-b border-stone-200 sticky top-0 z-20">
+        <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
           <div 
-            className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+            className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity shrink-0"
             onClick={handleHome}
           >
             <div className="bg-stone-800 p-2 rounded-xl text-white">
               <Code2 size={24} />
             </div>
-            <h1 className="text-xl font-bold tracking-tight">친절한 코딩 교실</h1>
+            <h1 className="text-xl font-bold tracking-tight hidden sm:block">친절한 코딩 교실</h1>
           </div>
+
+          {/* Search Bar */}
+          <div className="flex-grow max-w-md relative" ref={searchRef}>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
+              <input
+                type="text"
+                placeholder="명령어나 개념 검색 (예: if, 변수...)"
+                className="w-full bg-stone-100 border-none rounded-full py-2 pl-10 pr-4 text-sm focus:ring-2 focus:ring-stone-800 transition-all"
+                value={searchQuery}
+                onChange={(e) => handleSearch(e.target.value)}
+                onFocus={() => setIsSearchFocused(true)}
+              />
+              {searchQuery && (
+                <button 
+                  onClick={() => { setSearchQuery(''); setSearchResults([]); }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            <AnimatePresence>
+              {isSearchFocused && searchResults.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  className="absolute top-full mt-2 w-full bg-white rounded-2xl shadow-xl border border-stone-200 overflow-hidden z-30"
+                >
+                  <div className="py-2">
+                    {searchResults.map((result, idx) => (
+                      <button
+                        key={`${result.langKey}-${result.lessonIndex}-${idx}`}
+                        className="w-full px-4 py-3 text-left hover:bg-stone-50 flex flex-col gap-0.5 transition-colors"
+                        onClick={() => handleSelectResult(result)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-stone-800 text-sm">{result.title}</span>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded">
+                            {result.langName}
+                          </span>
+                        </div>
+                        <p className="text-xs text-stone-500 truncate">{result.snippet}</p>
+                      </button>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
           {activeLangData && activeColors && (
-            <div className="text-sm font-medium text-stone-500 bg-stone-100 px-3 py-1.5 rounded-full flex items-center gap-2">
+            <div className="text-sm font-medium text-stone-500 bg-stone-100 px-3 py-1.5 rounded-full flex items-center gap-2 shrink-0">
               <span className={`${activeColors.text} font-bold`}>{activeLangData.name}</span>
-              <span>과정 진행 중</span>
+              <span className="hidden md:inline">과정 진행 중</span>
             </div>
           )}
         </div>
@@ -221,11 +360,50 @@ export default function App() {
                       <p className="text-stone-700 leading-relaxed mb-6 font-medium">
                         {activeLangData.lessons[currentLessonIndex].practiceProblem}
                       </p>
+
+                      <div className="mb-6">
+                        <textarea
+                          value={userAnswer}
+                          onChange={(e) => setUserAnswer(e.target.value)}
+                          placeholder="여기에 코드를 입력해 보세요..."
+                          className="w-full h-32 bg-white border border-stone-200 rounded-xl p-4 font-mono text-sm focus:ring-2 focus:ring-stone-800 transition-all resize-none"
+                        />
+                        <div className="mt-3 flex items-center justify-between">
+                          <button
+                            onClick={checkAnswer}
+                            className="px-5 py-2 bg-stone-800 text-white rounded-lg text-sm font-bold hover:bg-stone-900 transition-colors flex items-center gap-2"
+                          >
+                            정답 확인하기
+                          </button>
+                          
+                          <AnimatePresence>
+                            {feedback && (
+                              <motion.div
+                                initial={{ opacity: 0, x: -10 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                className={`flex items-center gap-2 text-sm font-bold ${
+                                  feedback === 'correct' ? 'text-green-600' : 'text-red-500'
+                                }`}
+                              >
+                                {feedback === 'correct' ? (
+                                  <>
+                                    <Check className="w-4 h-4" /> 참 잘했어요! 정답입니다.
+                                  </>
+                                ) : (
+                                  <>
+                                    <AlertCircle className="w-4 h-4" /> 조금 다르네요. 다시 한번 확인해 볼까요?
+                                  </>
+                                )}
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      </div>
                       
                       <details key={currentLessonIndex} className="group">
                         <summary className="flex items-center gap-2 cursor-pointer text-sm font-semibold text-stone-500 hover:text-stone-800 transition-colors list-none">
                           <span className="bg-stone-200 group-open:bg-stone-800 group-open:text-white px-3 py-1.5 rounded-full transition-colors">
-                            정답 확인하기
+                            모범 답안 보기
                           </span>
                         </summary>
                         <div className="mt-4 bg-stone-900 rounded-xl p-5 shadow-inner">
